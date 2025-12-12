@@ -109,7 +109,6 @@ export default function CanvasRenderer({
     function emitTrail(x: number, y: number, vx: number, vy: number) {
         const p = getInactive();
         if (!p) return;
-
         p.x = x + (Math.random() - 0.5) * 4;
         p.y = y + (Math.random() - 0.5) * 4;
         p.vx = vx * 0.14 + (Math.random() - 0.5) * 0.9;
@@ -139,7 +138,6 @@ export default function CanvasRenderer({
             p.y = y + (Math.random() - 0.5) * 6;
             p.vx = Math.cos(a) * s;
             p.vy = Math.sin(a) * s;
-
             p.hue = palette.hues[0] + Math.random() * 120 - 60;
             p.size = baseSize * (0.8 + Math.random() * 1.6);
             p.life = 0;
