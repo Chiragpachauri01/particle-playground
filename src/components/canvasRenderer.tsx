@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import gsap from "gsap";
-import type { Palette } from "../types";
+import type { Palette, Mode, Shape } from "../types";
 
 type Particle = {
     x: number;
@@ -12,9 +12,8 @@ type Particle = {
     life: number;
     maxLife: number;
     active: boolean;
+    shape: Shape;
 };
-
-type Mode = "zero-g" | "gravity" | "chaos" | "black-hole";
 
 type Props = {
     palette: Palette;
@@ -25,12 +24,12 @@ type Props = {
     burstLife?: number;
     baseSize?: number;
 
-    // Controlled props
     mode: Mode;
     magnetEnabled: boolean;
     magnetRepel: boolean;
 
-    // Callbacks for keyboard → UI sync
+    shape: Shape;
+
     onModeChange: (m: Mode) => void;
     onMagnetChange: (v: boolean) => void;
     onMagnetRepelChange: (v: boolean) => void;
@@ -54,12 +53,11 @@ export default function CanvasRenderer({
     burstLife = DEFAULTS.burstLife,
     baseSize = DEFAULTS.baseSize,
 
-    // controlled props
     mode,
     magnetEnabled,
     magnetRepel,
+    shape,
 
-    // callbacks
     onModeChange,
     onMagnetChange,
     onMagnetRepelChange,
@@ -72,18 +70,18 @@ export default function CanvasRenderer({
     const lastActivityAt = useRef<number>(0);
     const cursor = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
 
-    // FIX: Refs for fresh physics values inside the loop
     const modeRef = useRef<Mode>(mode);
     const magnetEnabledRef = useRef<boolean>(magnetEnabled);
     const magnetRepelRef = useRef<boolean>(magnetRepel);
+    const shapeRef = useRef<Shape>(shape);
 
     useEffect(() => { modeRef.current = mode; }, [mode]);
     useEffect(() => { magnetEnabledRef.current = magnetEnabled; }, [magnetEnabled]);
     useEffect(() => { magnetRepelRef.current = magnetRepel; }, [magnetRepel]);
+    useEffect(() => { shapeRef.current = shape; }, [shape]);
 
     const chaosSeed = useRef(Math.random() * 10000);
 
-    // INIT pool
     useEffect(() => {
         const pool: Particle[] = new Array(poolSize);
         for (let i = 0; i < poolSize; i++) {
@@ -97,6 +95,7 @@ export default function CanvasRenderer({
                 life: 0,
                 maxLife: 0,
                 active: false,
+                shape: "bubble",
             };
         }
         poolRef.current = pool;
@@ -110,6 +109,7 @@ export default function CanvasRenderer({
     function emitTrail(x: number, y: number, vx: number, vy: number) {
         const p = getInactive();
         if (!p) return;
+
         p.x = x + (Math.random() - 0.5) * 4;
         p.y = y + (Math.random() - 0.5) * 4;
         p.vx = vx * 0.14 + (Math.random() - 0.5) * 0.9;
@@ -118,6 +118,9 @@ export default function CanvasRenderer({
         p.size = baseSize * (0.6 + Math.random() * 1.6);
         p.life = 0;
         p.maxLife = trailLife;
+
+        p.shape = shapeRef.current;
+
         p.active = true;
         activeCount.current++;
         lastActivityAt.current = performance.now();
@@ -128,16 +131,22 @@ export default function CanvasRenderer({
         for (let i = 0; i < amount; i++) {
             const p = getInactive();
             if (!p) break;
+
             const a = Math.random() * Math.PI * 2;
             const s = 1.6 + Math.random() * 5.6;
+
             p.x = x + (Math.random() - 0.5) * 6;
             p.y = y + (Math.random() - 0.5) * 6;
             p.vx = Math.cos(a) * s;
             p.vy = Math.sin(a) * s;
+
             p.hue = palette.hues[0] + Math.random() * 120 - 60;
             p.size = baseSize * (0.8 + Math.random() * 1.6);
             p.life = 0;
             p.maxLife = burstLife;
+
+            p.shape = shapeRef.current;
+
             p.active = true;
             activeCount.current++;
         }
@@ -153,7 +162,6 @@ export default function CanvasRenderer({
         activeCount.current = Math.max(0, activeCount.current - 1);
     }
 
-    // POINTER EVENTS
     useEffect(() => {
         const canvas = canvasRef.current!;
         if (!canvas) return;
@@ -202,7 +210,6 @@ export default function CanvasRenderer({
         };
     }, [trailPerMove, burstCount, burstLife, trailLife, baseSize, palette]);
 
-    // KEYBOARD (sync with UI)
     useEffect(() => {
         function onKey(e: KeyboardEvent) {
             if (e.key === "1") onModeChange("zero-g");
@@ -217,7 +224,6 @@ export default function CanvasRenderer({
         return () => window.removeEventListener("keydown", onKey);
     }, [magnetEnabled, magnetRepel]);
 
-    // RAF LOOP HANDLERS
     function startLoop() {
         if (rafRef.current !== null) return;
         rafRef.current = requestAnimationFrame(loop);
@@ -264,7 +270,6 @@ export default function CanvasRenderer({
                 continue;
             }
 
-            // ⭐ PHYSICS MODES read from REF (fresh each frame)
             const m = modeRef.current;
 
             if (m === "gravity") {
@@ -285,12 +290,10 @@ export default function CanvasRenderer({
                 p.vx += (dx / dist) * force * power;
                 p.vy += (dy / dist) * force * power;
 
-                // swirl
                 p.vx += -dy * 0.002;
                 p.vy += dx * 0.002;
             }
 
-            // ⭐ MAGNET (also from REFS)
             if (magnetEnabledRef.current) {
                 const dx = cursor.current.x - p.x;
                 const dy = cursor.current.y - p.y;
@@ -299,34 +302,86 @@ export default function CanvasRenderer({
                 if (dist < 260) {
                     const dir = magnetRepelRef.current ? -1 : 1;
                     const mag = (1 - dist / 260) * 0.9 * dir;
-                    const mPower = 1.8;
-                    p.vx += (dx / dist) * mag * mPower;
-                    p.vy += (dy / dist) * mag * mPower;
+                    p.vx += (dx / dist) * mag * 1.8;
+                    p.vy += (dy / dist) * mag * 1.8;
                 }
             }
 
-            // motion
             p.vx *= 0.985;
             p.vy *= 0.985;
             p.x += p.vx;
             p.y += p.vy;
 
-            // glow
-            ctx.globalCompositeOperation = "lighter";
-            const lifeNorm = 1 - p.life / p.maxLife;
-            const sizePx = p.size;
+            // ⭐ Render Shapes
+            switch (p.shape) {
+                case "bubble": {
+                    ctx.globalCompositeOperation = "lighter";
+                    const lifeNorm = 1 - p.life / p.maxLife;
+                    const grad = ctx.createRadialGradient(
+                        p.x, p.y, 0, p.x, p.y, p.size * 10
+                    );
+                    grad.addColorStop(0, `hsla(${p.hue},100%,60%,${lifeNorm})`);
+                    grad.addColorStop(1, `hsla(${p.hue},80%,30%,0)`);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size * 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                }
 
-            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sizePx * 10);
-            grad.addColorStop(0, `hsla(${p.hue},100%,60%,${lifeNorm})`);
-            grad.addColorStop(1, `hsla(${p.hue},80%,30%,0)`);
+                case "line": {
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.strokeStyle = `hsla(${p.hue},100%,70%,0.9)`;
+                    ctx.lineWidth = p.size * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(p.x - p.vx * 4, p.y - p.vy * 4);
+                    ctx.stroke();
+                    break;
+                }
 
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, sizePx * 8, 0, Math.PI * 2);
-            ctx.fill();
+                case "square": {
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.fillStyle = `hsla(${p.hue},100%,60%,0.9)`;
+                    const s = p.size * 10;
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.life * 0.1);
+                    ctx.fillRect(-s / 2, -s / 2, s, s);
+                    ctx.restore();
+                    break;
+                }
+
+                case "triangle": {
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.fillStyle = `hsla(${p.hue},100%,60%,0.85)`;
+                    const s = p.size * 12;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y - s);
+                    ctx.lineTo(p.x - s * 0.8, p.y + s);
+                    ctx.lineTo(p.x + s * 0.8, p.y + s);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                }
+
+                case "ray": {
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.strokeStyle = `hsla(${p.hue},100%,80%,1)`;
+                    ctx.lineWidth = p.size * 1.5;
+                    const len = 20 + p.life * 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(
+                        p.x + Math.cos(p.life * 0.2) * len,
+                        p.y + Math.sin(p.life * 0.2) * len
+                    );
+                    ctx.stroke();
+                    break;
+                }
+            }
         }
 
-        // Draw magnet debug circle
         if (magnetEnabledRef.current) {
             ctx.globalCompositeOperation = "source-over";
             ctx.strokeStyle = magnetRepelRef.current
@@ -338,13 +393,11 @@ export default function CanvasRenderer({
             ctx.stroke();
         }
 
-        // Stop when idle
         if (activeCount.current === 0 && now - lastActivityAt.current > 700) {
             stopLoop();
         }
     }
 
-    // INITIAL CLEAR
     useEffect(() => {
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext("2d")!;
